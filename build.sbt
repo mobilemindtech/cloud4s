@@ -35,7 +35,7 @@ lazy val root = project
     libraryDependencies ++= Seq(
       ///"ch.qos.logback" % "logback-classic" % "1.5.3",
       "com.jcraft" % "jsch" % "0.1.55",
-      "org.typelevel" %% "cats-effect" % "3.6.3",
+      "org.typelevel" %% "cats-effect" % "3.7.0",
       "com.monovore" %% "decline" % "2.5.0",
       "com.monovore" %% "decline-effect" % "2.5.0",
       "org.scalameta" %% "munit" % "1.1.1" % Test
