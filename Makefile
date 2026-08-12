@@ -4,6 +4,6 @@ all: compile
 
 clean: ; sbt clean && rm -rf target
 
-compile: ; sbt nativeCompile
+compile: ; sbt release
 
-install: ; cp ./target/cloud /usr/bin
+install: ; cp ./dist/cloud4s /usr/bin

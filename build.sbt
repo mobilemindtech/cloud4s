@@ -4,16 +4,19 @@ import sbt.Keys.*
 import java.io.File
 import scala.language.postfixOps
 import scala.sys.process.*
+import scala.scalanative.build.*
+import bindgen.interface.Binding
+import bindgen.plugin.BindgenMode
+import com.indoorvivants.detective.Platform
 
-val scala3Version = "3.8.0-RC4"
-scalaVersion := scala3Version
+resolvers += Resolver.mavenLocal
 
-lazy val nativeCompile = inputKey[Unit]("Create native image")
-lazy val nativeConfig = inputKey[Unit]("Create configs to native image")
-lazy val dist = inputKey[Unit]("run dist")
 
-ThisBuild / scalaVersion := "3.7.3"
-
+scalaVersion := "3.8.4"
+scalafmtOnCompile := true
+organization := "io.cloud4s.cli"
+name := "cloud4s"
+version := "0.0.3"
 scalacOptions ++= Seq(
   "-new-syntax",
   "-Wvalue-discard",
@@ -24,21 +27,119 @@ scalacOptions ++= Seq(
   "-rewrite",
   "-source:future"
 )
+Compile / run / fork := true
+usePipelining := true
 
 lazy val root = project
   .in(file("."))
+  .enablePlugins(ScalaNativePlugin, BindgenPlugin, VcpkgNativePlugin)
   .settings(
-    scalaVersion := "3.7.3",
-    organization := "io.cloud.cli",
-    name := "cloud",
-    version := "0.0.2",
+    name := "cloud4s",
+
+    libraryDependencies ++= Seq(
+      "io.github.cquiroz" %%% "scala-java-time" % "2.6.0",
+      "io.github.cquiroz" %%% "scala-java-time-tzdb" % "2.6.0",
+      "org.typelevel" %%% "cats-effect" % "3.7.0",
+      "com.monovore" %%% "decline" % "2.6.2",
+      "com.monovore" %%% "decline-effect" % "2.6.2",
+      "com.lihaoyi" %%% "upickle" % "4.4.3",
+      "com.softwaremill.sttp.client4" %%% "core" % "4.0.26",
+      "org.scalameta" %%% "munit" % "1.3.5" % Test
+    ),
+
+    // 1. Dependências C gerenciadas pelo vcpkg
+    vcpkgDependencies := VcpkgDependencies("libssh", "openssl", "zlib"),
+
+    // 2. Modos e caminhos de saída do Bindgen
+    bindgenMode := BindgenMode.Manual(
+      scalaDir = (Compile / sourceDirectory).value / "scala" / "io" / "cloud4s" / "cli" / "bindings",
+      cDir = (Compile / resourceDirectory).value / "scala-native" / "ssh"
+    ),
+
+    // 3. Definição segura das bindings do Bindgen
+    bindgenBindings += {
+      val vcpkg = vcpkgConfigurator.value
+      // Obtém os diretórios de include para a libssh
+      val includes = vcpkg.includes("libssh")
+      val includeFlags = vcpkg.pkgConfig.compilationFlags("libssh").toList
+
+      // Encontra o cabeçalho libssh.h
+      val headerFile = includes / "libssh" / "libssh.h"
+
+      Binding(headerFile, "ssh")
+        .withLinkName("ssh")
+        .withCImports(List("libssh/libssh.h"))
+        .withClangFlags(includeFlags ++ List("-std=gnu99"))
+        .withNoLocation(true)
+    },
+
+    // 4. Configuração unificada do Scala Native
+    nativeConfig := {
+      val conf = nativeConfig.value
+      val vcpkg = vcpkgConfigurator.value
+
+      // Resgata as cflags e lflags para todos os pacotes vcpkg declarados
+      val pkgs = Seq("libssh", "openssl", "zlib")
+      val cflags = vcpkg.pkgConfig.compilationFlags(pkgs: _*).toList
+      val lflags = vcpkg.pkgConfig.linkingFlags(pkgs: _*).toList
+
+      // Validação de plataforma para Apple Silicon (macOS arm64)
+      val isMac = System.getProperty("os.name").toLowerCase.contains("mac")
+      val isArm64 = Platform.arch == Platform.Arch.Arm && Platform.bits == Platform.Bits.x64
+      val macArmFlags = if (isMac && isArm64) List("-arch", "arm64") else Nil
+      conf
+        .withCompileOptions(conf.compileOptions ++ cflags ++ macArmFlags ++ Seq("-g"))
+        .withLinkingOptions(conf.linkingOptions ++ lflags ++ macArmFlags ++ Seq("-lstdc++"))
+        .withLTO(LTO.none)
+        .withMode(Mode.debug)
+        .withGC(GC.immix)
+        .withSourceLevelDebuggingConfig(_.enableAll)
+        .withOptimize(false)
+    },
+
+    testOptions += Tests.Argument(TestFrameworks.JUnit, "-a", "-s", "-v")
+  )
+
+commands += Command.command("release") { state =>
+  println("Iniciando build de produção (Release)...")
+
+  // 1. Modifica a configuração para produção temporariamente
+  val stateWithConfig = Project.extract(state).appendWithoutSession(Seq(
+    Compile / nativeConfig ~= { _
+      .withMode(scala.scalanative.build.Mode.releaseFast)
+      .withLTO(scala.scalanative.build.LTO.thin)
+      .withGC(scala.scalanative.build.GC.commix)
+      .withOptimize(true)
+    }
+  ), state)
+
+  // 2. Executa o build e pega o caminho do binário gerado
+  val (nextState, artifactFile) = Project.extract(stateWithConfig).runTask(Compile / nativeLink, stateWithConfig)
+
+  // 3. Define a pasta de destino (dist/) e o nome do arquivo final
+  val destFile = baseDirectory.value / "dist" / artifactFile.getName
+
+  println(s"Copiando executável final para: ${destFile.getAbsolutePath}")
+  IO.copyFile(artifactFile, destFile)
+
+  println("Build de produção concluído com sucesso!")
+  nextState
+}
+
+/*
+lazy val root = project
+  .enablePlugins(ScalaNativePlugin)
+  .in(file("."))
+  .settings(
     libraryDependencies ++= Seq(
       ///"ch.qos.logback" % "logback-classic" % "1.5.3",
-      "com.jcraft" % "jsch" % "0.1.55",
-      "org.typelevel" %% "cats-effect" % "3.6.3",
-      "com.monovore" %% "decline" % "2.5.0",
-      "com.monovore" %% "decline-effect" % "2.5.0",
-      "org.scalameta" %% "munit" % "1.1.1" % Test
+      //"com.jcraft" % "jsch" % "0.1.55",
+      "org.typelevel" %% "cats-effect" % "3.7.0",
+      "com.monovore" %% "decline" % "2.6.2",
+      "com.monovore" %% "decline-effect" % "2.6.2",
+      "com.lihaoyi" %% "upickle" % "4.4.3",
+      "br.com.mobilemind" %% "sg4s-lib" % "0.1.0-SNAPSHOT",
+      "org.scalameta" %% "munit" % "1.3.5" % Test
     ),
     nativeConfig := {
       val logger: TaskStreams = streams.value
@@ -106,8 +207,5 @@ lazy val root = project
     oldStrategy(x)
 }
 
-ThisBuild / Compile / run / fork := true
-
-ThisBuild / usePipelining := true
-
 nativeCompile := (nativeCompile dependsOn assembly).evaluated
+*/
