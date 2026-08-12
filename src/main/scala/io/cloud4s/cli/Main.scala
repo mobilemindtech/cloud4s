@@ -29,7 +29,7 @@ object Cloud4s
     Resource.make(
       IO.delay(Zone.open()) // Acquire the Zone
     )(zone =>
-      IO.delay(zone.close()) // Release the Zone safely when done
+      IO.delay(zone.close()) // Release the Zone safely when done      
     )
 
   override def main: Opts[IO[ExitCode]] = {
