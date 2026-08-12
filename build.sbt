@@ -29,6 +29,9 @@ scalacOptions ++= Seq(
 )
 Compile / run / fork := true
 usePipelining := true
+ThisBuild / envVars := Map(
+  "ENVIRONMENT" -> "development"
+)
 
 lazy val root = project
   .in(file("."))
@@ -94,6 +97,7 @@ lazy val root = project
         .withMode(Mode.debug)
         .withGC(GC.immix)
         .withSourceLevelDebuggingConfig(_.enableAll)
+        .withIncrementalCompilation(true)
         .withOptimize(false)
     },
 

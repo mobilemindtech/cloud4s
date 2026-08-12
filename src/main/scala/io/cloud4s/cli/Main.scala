@@ -32,12 +32,18 @@ object Cloud4s
       IO.delay(zone.close()) // Release the Zone safely when done
     )
 
-  override def main: Opts[IO[ExitCode]] =
+  override def main: Opts[IO[ExitCode]] = {
     cmds.map { cmd =>
       managedZone.use { zone =>
         runCmd(cmd)(using zone)
+          .recoverWith { case ex =>
+            System.getenv("ENVIRONMENT") match
+              case "development" => IO.raiseError(ex)
+              case _             => IO.unit.as(ExitCode.Success)
+          }
       }
     }
+  }
 
   def runCmd(cmd: Cmd): Zone ?=> IO[ExitCode] =
     for
@@ -192,8 +198,8 @@ object codebuild:
       .flatMap { resp =>
         say(resp.body) *>
           (resp.statusCode match
-            case 200  => IO.unit.as(ExitCode.Success)
-            case code =>
+            case 200 => IO.unit.as(ExitCode.Success)
+            case _   =>
               IO.raiseError(
                 new Exception(s"Server status code ${resp.statusCode}")
               ))
@@ -212,8 +218,8 @@ object codebuild:
       .flatMap { resp =>
         say(resp.body) *>
           (resp.statusCode match
-            case 200  => IO.unit.as(ExitCode.Success)
-            case code =>
+            case 200 => IO.unit.as(ExitCode.Success)
+            case _   =>
               IO.raiseError(
                 new Exception(s"Server status code ${resp.statusCode}")
               ))
@@ -273,8 +279,8 @@ object codebuild:
     Http(url, Some(auth)).get
       .flatMap: resp =>
         resp.statusCode match
-          case 200  => IO.blocking { ujson.read(resp.body) }
-          case code =>
+          case 200 => IO.blocking { ujson.read(resp.body) }
+          case _   =>
             say(resp.body) *> IO.raiseError(
               new Exception(s"Server status code ${resp.statusCode}")
             )

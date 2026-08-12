@@ -111,7 +111,7 @@ object AppCmds:
     Opts.subcommand("project", "Update code build project name") {
       (
         Opts.argument[String](metavar = "Current alias"),
-        Opts.argument[String](metavar = "New alias")
+        Opts.argument[String](metavar = "New project name")
       )
         .mapN(CodeBuildUpdateCodeBuildProjectName.apply)
     }
@@ -237,13 +237,13 @@ object AppCmds:
   val dockerStats: Opts[DockerStats] =
     Opts.subcommand(
       "stats",
-      "Docker containers resource usage statistics"
+      "Docker containers usage statistics"
     ) {
       Opts(DockerStats())
     }
 
   val codebuildAws: Opts[CodeBuild] =
-    Opts.subcommand("aws", "AWS actions") {
+    Opts.subcommand("aws", "AWS Actions") {
       (codebuildAppInc
         orElse codebuildStart
         orElse codebuildStop
