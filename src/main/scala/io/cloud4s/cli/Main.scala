@@ -115,7 +115,7 @@ def say(s: String): IO[Unit] =
   IO.blocking:
     Console.print(Console.GREEN)
     Console.print(
-      s"[${LocalDateTime.now().format(formatter)}][INFO]::> "
+      s"[${LocalDateTime.now().format(formatter)}][INFO]::>\n"
     )
     Console.print(s"\n$s\n")
     Console.print(Console.RESET)
@@ -124,7 +124,7 @@ def sayError(s: String): IO[ExitCode] =
   IO.blocking:
     Console.print(Console.RED)
     Console.print(
-      s"[${LocalDateTime.now().format(formatter)}][ERROR]::> "
+      s"[${LocalDateTime.now().format(formatter)}][ERROR]::>\n"
     )
     Console.print(s"\n$s\n")
     Console.print(Console.RESET)
