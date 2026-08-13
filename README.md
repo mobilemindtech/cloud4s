@@ -1,9 +1,14 @@
 Mobile Mind Cloud4s CLI
 
-### Usage
+### Depdendencies
+
+- libssl
+- libcurl
+- libssh
 
 CLI server manager
 
+##
 
 # Configuration file
 

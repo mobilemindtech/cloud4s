@@ -244,8 +244,7 @@ object AppCmds:
 
   val codebuildAws: Opts[CodeBuild] =
     Opts.subcommand("aws", "AWS Actions") {
-      (codebuildAppInc
-        orElse codebuildStart
+      (codebuildStart
         orElse codebuildStop
         orElse codebuildInfo
         orElse codebuildStatus

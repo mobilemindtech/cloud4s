@@ -5,6 +5,15 @@ import sttp.client4.*
 import sttp.model.Uri
 
 import java.util.Base64
+import scala.scalanative.unsafe.extern
+
+@extern
+object libcurl {
+  // CURL_GLOBAL_ALL = 3 (Inicializa SSL, sockets e rotinas globais)
+  def curl_global_init(flags: Long): Int = extern
+}
+
+def curl_init() = libcurl.curl_global_init(3L)
 
 sealed trait Auth
 
@@ -39,32 +48,44 @@ case class Http(
         req2.header("Authorization", s"Basic ${basic.encode()}")
       case _ => req2
 
-  private def parseUri(): IO[Uri] =
-    Uri.parse(url) match
-      case Left(err) =>
-        IO.raiseError(new Exception(s"error to parse uri: $err"))
-      case Right(uri) => IO.pure(uri)
+  private def parseUri(): IO[Uri] = {
+    IO.delay {
+      Uri.parse(url) match
+        case Left(err) =>
+          throw new Exception(s"error to parse uri: $err")
+        case Right(uri) => uri
+    }
+  }
 
   def post(payload: String): IO[Response] =
     parseUri().flatMap { uri =>
-      val backend = DefaultSyncBackend()
-      val request = basicRequest
-        .post(uri)
-        .body(payload)
-      val response = addHeaders(request).send(backend)
-      val body = response.body match
-        case Left(body)  => body
-        case Right(body) => body
-      IO.pure(Response(response.code.code, body))
+      IO.delay {
+        val backend = DefaultSyncBackend()
+        val request = basicRequest
+          .post(uri)
+          .body(payload)
+        val response = addHeaders(request).send(backend)
+        val body = response.body match
+          case Left(body)  => body
+          case Right(body) => body
+        Response(response.code.code, body)
+      }
     }
 
   def get: IO[Response] =
     parseUri().flatMap { uri =>
-      val backend = DefaultSyncBackend()
-      val request = basicRequest.get(uri)
-      val response = addHeaders(request).send(backend)
-      val body = response.body match
-        case Left(body)  => body
-        case Right(body) => body
-      IO.pure(Response(response.code.code, body))
+      IO.delay {
+        println(s"GET: $uri")
+        val backend = DefaultSyncBackend()
+        val req1 = basicRequest.get(uri)
+        println("created request")
+        val req2 = addHeaders(req1)
+        println("add headers")
+        val response = req2.send(backend)
+        println("send request ok")
+        val body = response.body match
+          case Left(body)  => body
+          case Right(body) => body
+        Response(response.code.code, body)
+      }
     }
