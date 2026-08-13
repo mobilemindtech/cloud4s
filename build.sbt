@@ -16,7 +16,7 @@ scalaVersion := "3.8.4"
 scalafmtOnCompile := true
 organization := "io.cloud4s.cli"
 name := "cloud4s"
-version := "0.0.3"
+version := "0.0.4"
 scalacOptions ++= Seq(
   "-new-syntax",
   "-Wvalue-discard",

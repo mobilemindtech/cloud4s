@@ -22,7 +22,7 @@ object Cloud4s
     extends CommandIOApp(
       name = "cloud4s",
       header = "Mobile Mind Cloud CLI Tool",
-      version = "0.0.3"
+      version = "0.0.4"
     ) {
 
   def managedZone: Resource[IO, Zone] =
@@ -115,16 +115,18 @@ def say(s: String): IO[Unit] =
   IO.blocking:
     Console.print(Console.GREEN)
     Console.print(
-      s"\n[${LocalDateTime.now().format(formatter)}][INFO]::> \n$s\n"
+      s"[${LocalDateTime.now().format(formatter)}][INFO]::> "
     )
+    Console.print(s"\n$s\n")
     Console.print(Console.RESET)
 
 def sayError(s: String): IO[ExitCode] =
   IO.blocking:
     Console.print(Console.RED)
     Console.print(
-      s"\n[${LocalDateTime.now().format(formatter)}][ERROR]::>\n\n$s\n"
+      s"[${LocalDateTime.now().format(formatter)}][ERROR]::> "
     )
+    Console.print(s"\n$s\n")
     Console.print(Console.RESET)
   *> IO.unit.as(ExitCode.Error)
 
@@ -135,10 +137,10 @@ def showLogs(out: String): IO[ExitCode] =
   IO.blocking {
     Console.print(Console.GREEN)
     Console.print(
-      s"\n[${LocalDateTime.now().format(formatter)}][LOGS]::>\n\n"
+      s"\n[${LocalDateTime.now().format(formatter)}][LOGS]::>\n"
     )
     Console.print(out)
-    Console.print("\n\n")
+    Console.print("\n")
     Console.print(Console.RESET)
   } *> IO.unit.as(ExitCode.Success)
 
@@ -173,14 +175,12 @@ object codebuild:
       .flatMap { data =>
         val info = upickle.read[AppInfo](data)
         Console.print(Console.YELLOW)
-        println("\n\n")
-        println(s"               ID: ${info.id}")
-        println(s"            Alias: ${info.alias}")
-        println(s"          Version: ${info.version}")
-        println(s"       LastUpdate: ${info.lastUpdate}")
-        println(s"Codebuild Project: ${info.codeBuildProjectName}")
-        println(s"      ECR Project: ${info.ecrRepoName}")
-        println("\n\n")
+        println(s"::>                ID: ${info.id}")
+        println(s"::>             Alias: ${info.alias}")
+        println(s"::>           Version: ${info.version}")
+        println(s"::>        LastUpdate: ${info.lastUpdate}")
+        println(s"::> Codebuild Project: ${info.codeBuildProjectName}")
+        println(s"::>       ECR Project: ${info.ecrRepoName}")
         Console.print(Console.RESET)
         IO.unit.as(ExitCode.Success)
       }
@@ -233,24 +233,21 @@ object codebuild:
 
   def printAppVersionTable(appVersion: AppVersion) =
     Console.print(Console.YELLOW)
-    println("\n\n")
-    println(s"Current Version: ${appVersion.currVersion}")
+    print(s"::> current version is ${appVersion.currVersion}")
     if appVersion.currVersion != appVersion.lastVersion
-    then println(s"   Last Version: ${appVersion.lastVersion}")
-    println(s"    Last update: ${appVersion.lastUpdate}")
-    println("\n\n")
+    then print(s", last version is ${appVersion.lastVersion}")
+    print(s", last update is ${appVersion.lastUpdate}\n")
     Console.print(Console.RESET)
 
   def printAppsTable(apps: Seq[AppInfo]) =
     val maxAlias = apps.map(_.alias.length).max
-    val maxVersion = apps.map(_.version.length).max
+    val maxVersion = 10
     val maxCbProject = apps.map(_.codeBuildProjectName.length).max
     val maxEcr = apps.map(_.ecrRepoName.length).max
     val maxLastUpdate = apps.map(_.lastUpdate.length).max
     val fmt =
       s"%-${maxAlias}s | %-${maxVersion}s | %-${maxCbProject}s | %-${maxEcr}s | %-${maxLastUpdate}s"
     Console.print(Console.YELLOW)
-    println("\n\n")
     println(
       fmt.formatted(
         "Alias",
@@ -260,6 +257,7 @@ object codebuild:
         "Last Update"
       )
     )
+    println("")
     for app <- apps do
       println(
         fmt.formatted(
@@ -270,7 +268,6 @@ object codebuild:
           app.lastUpdate
         )
       )
-    println("\n\n")
     Console.print(Console.RESET)
 
   private def cbCallApi(path: String)(using cfg: Config): IO[ujson.Value] =

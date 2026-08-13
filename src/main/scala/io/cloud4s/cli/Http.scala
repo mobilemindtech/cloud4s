@@ -75,14 +75,9 @@ case class Http(
   def get: IO[Response] =
     parseUri().flatMap { uri =>
       IO.delay {
-        println(s"GET: $uri")
         val backend = DefaultSyncBackend()
-        val req1 = basicRequest.get(uri)
-        println("created request")
-        val req2 = addHeaders(req1)
-        println("add headers")
-        val response = req2.send(backend)
-        println("send request ok")
+        val request = basicRequest.get(uri)
+        val response = addHeaders(request).send(backend)
         val body = response.body match
           case Left(body)  => body
           case Right(body) => body

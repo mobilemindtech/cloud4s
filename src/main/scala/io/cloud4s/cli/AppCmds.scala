@@ -101,7 +101,7 @@ object AppCmds:
   val codebuildUpdateAlias: Opts[CodeBuild] =
     Opts.subcommand("alias", "Update app alias") {
       (
-        Opts.argument[String](metavar = "Current alias"),
+        Opts.argument[String](metavar = "Alias"),
         Opts.argument[String](metavar = "New alias")
       )
         .mapN(CodeBuildUpdateAlias.apply)
@@ -110,7 +110,7 @@ object AppCmds:
   val codeBuildUpdateCodeBuildProjectName: Opts[CodeBuild] =
     Opts.subcommand("project", "Update code build project name") {
       (
-        Opts.argument[String](metavar = "Current alias"),
+        Opts.argument[String](metavar = "Alias"),
         Opts.argument[String](metavar = "New project name")
       )
         .mapN(CodeBuildUpdateCodeBuildProjectName.apply)
