@@ -42,9 +42,7 @@ lazy val root = project
     libraryDependencies ++= Seq(
       "io.github.cquiroz" %%% "scala-java-time" % "2.6.0",
       "io.github.cquiroz" %%% "scala-java-time-tzdb" % "2.6.0",
-      "org.typelevel" %%% "cats-effect" % "3.7.0",
-      "com.monovore" %%% "decline" % "2.6.2",
-      "com.monovore" %%% "decline-effect" % "2.6.2",
+      "com.github.scopt" %%% "scopt" % "4.1.0",
       "com.lihaoyi" %%% "upickle" % "4.4.3",
       "com.softwaremill.sttp.client4" %%% "core" % "4.0.26",
       "org.scalameta" %%% "munit" % "1.3.5" % Test
@@ -75,7 +73,7 @@ lazy val root = project
       // Validação de plataforma para Apple Silicon (macOS arm64)
       conf
         .withLinkingOptions(
-          conf.linkingOptions ++ Seq("-lcurl", "-lssh", "-lssl", "-lcrypto", "-lstdc++")
+          conf.linkingOptions ++ Seq("-fuse-ld=lld", "-lcurl", "-lssh", "-lssl", "-lcrypto", "-lstdc++")
         )
         .withLTO(LTO.none)
         .withMode(Mode.debug)

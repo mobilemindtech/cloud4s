@@ -1,23 +1,26 @@
 package io.cloud4s.cli
 
-import cats.effect.IO
 import sttp.client4.*
 import sttp.model.Uri
 
 import java.util.Base64
-import scala.scalanative.unsafe.extern
+import scala.util.Try
+import sttp.client4.curl.CurlBackend
 
-@extern
-object libcurl {
-  // CURL_GLOBAL_ALL = 3 (Inicializa SSL, sockets e rotinas globais)
-  def curl_global_init(flags: Long): Int = extern
-}
-
-def curl_init() = libcurl.curl_global_init(3L)
-
-sealed trait Auth
+extension [A, B](value: Either[A, B])
+  inline def toTryWith(inline f: A => Exception): Try[B] =
+    value.left.map(f).toTry
 
 case class Response(statusCode: Int, body: String)
+
+object Response:
+  def apply(resp: sttp.client4.Response[Either[String, String]]): Response =
+    val body = resp.body match
+      case Left(body)  => body
+      case Right(body) => body
+    Response(resp.code.code, body)
+
+sealed trait Auth
 
 case class AuthBasic(username: String, password: String) extends Auth:
 
@@ -48,39 +51,25 @@ case class Http(
         req2.header("Authorization", s"Basic ${basic.encode()}")
       case _ => req2
 
-  private def parseUri(): IO[Uri] = {
-    IO.delay {
-      Uri.parse(url) match
-        case Left(err) =>
-          throw new Exception(s"error to parse uri: $err")
-        case Right(uri) => uri
-    }
-  }
+  private def parseUri(): Try[Uri] =
+    Uri
+      .parse(url)
+      .toTryWith(s => new Exception(s"Parse error: $s"))
 
-  def post(payload: String): IO[Response] =
-    parseUri().flatMap { uri =>
-      IO.delay {
-        val backend = DefaultSyncBackend()
+  def post(payload: String): Try[Response] =
+    parseUri()
+      .map: uri =>
+        val backend = CurlBackend()
         val request = basicRequest
           .post(uri)
           .body(payload)
-        val response = addHeaders(request).send(backend)
-        val body = response.body match
-          case Left(body)  => body
-          case Right(body) => body
-        Response(response.code.code, body)
-      }
-    }
+        val resp = addHeaders(request).send(backend)
+        Response(resp)
 
-  def get: IO[Response] =
-    parseUri().flatMap { uri =>
-      IO.delay {
-        val backend = DefaultSyncBackend()
+  def get: Try[Response] =
+    parseUri()
+      .map: uri =>
+        val backend = CurlBackend()
         val request = basicRequest.get(uri)
-        val response = addHeaders(request).send(backend)
-        val body = response.body match
-          case Left(body)  => body
-          case Right(body) => body
-        Response(response.code.code, body)
-      }
-    }
+        val resp = addHeaders(request).send(backend)
+        Response(resp)

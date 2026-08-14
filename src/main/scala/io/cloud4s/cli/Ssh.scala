@@ -1,6 +1,5 @@
 package io.cloud4s.cli
 
-import cats.effect.{IO, Resource}
 import AppConfigs.Config
 import ssh.aliases.ssh_session
 import ssh.constants.*
@@ -12,6 +11,7 @@ import scala.scalanative.unsafe
 import scala.scalanative.unsafe.*
 import scala.scalanative.unsafe.Ptr
 import scala.scalanative.unsigned.*
+import scala.util.Try
 
 object Ssh:
 
@@ -20,71 +20,57 @@ object Ssh:
   def connectAndExec(
       cmd: String,
       host: String
-  ): Config ?=> Zone ?=> IO[String] =
-    mkSession(host).use { session =>
-      mkChannel(session, cmd)
-    }
+  ): Config ?=> Zone ?=> Try[String] =
+    connect(host)(exec(cmd))
 
-  private def mkSession(
-      host: String
-  )(using cfg: Config): Config ?=> Zone ?=> Resource[IO, ssh_session] =
-    Resource.make {
-      IO.blocking {
-        val session = ssh_new()
+  private def connect(host: String)(
+      f: ssh_session => Try[String]
+  ): Config ?=> Zone ?=> Try[String] =
+    Try:
+      val cfg = summon[Config]
+      val session = ssh_new()
 
-        if session.asInstanceOf[Ptr[?]] == null
-        then throw new Exception("Failed to create ssh session")
+      if session.asInstanceOf[Ptr[?]] == null
+      then throw new Exception("Failed to create ssh session")
 
-        val verbosity: Ptr[CUnsignedInt] = alloc[CUnsignedInt](1)
-        !verbosity = SSH_LOG_NOLOG // SSH_LOG_PROTOCOL
+      val verbosity: Ptr[CUnsignedInt] = alloc[CUnsignedInt](1)
+      !verbosity = SSH_LOG_NOLOG // SSH_LOG_PROTOCOL
 
-        val port: Ptr[CInt] = alloc[CInt](1)
-        !port = cfg.port
+      val port: Ptr[CInt] = alloc[CInt](1)
+      !port = cfg.port
 
-        ssh_options_set(session, SSH_OPTIONS_HOST, toCString(host))
-        ssh_options_set(
-          session,
-          SSH_OPTIONS_LOG_VERBOSITY,
-          verbosity.asInstanceOf[Ptr[Byte]]
+      ssh_options_set(session, SSH_OPTIONS_HOST, toCString(host))
+      ssh_options_set(
+        session,
+        SSH_OPTIONS_LOG_VERBOSITY,
+        verbosity.asInstanceOf[Ptr[Byte]]
+      )
+      ssh_options_set(session, SSH_OPTIONS_PORT, port.asInstanceOf[Ptr[Byte]])
+
+      val knownHostsPath = s"${System.getenv("HOME")}/.ssh/known_hosts"
+
+      ssh_options_set(
+        session,
+        SSH_OPTIONS_KNOWNHOSTS,
+        toCString(knownHostsPath)
+      )
+      // ssh_options_set(session, SSH_OPTIONS_GLOBAL_KNOWNHOSTS, c"/dev/null")
+
+      if ssh_connect(session) != SSH_OK
+      then
+        throw new Exception(
+          s"Failed to connect to ssh server: ${ssh_get_error(session.asInstanceOf[Ptr[Byte]])}"
         )
-        ssh_options_set(session, SSH_OPTIONS_PORT, port.asInstanceOf[Ptr[Byte]])
 
-        val knownHostsPath = s"${System.getenv("HOME")}/.ssh/known_hosts"
+      session
+    .flatMap: session =>
+      val r = f(session)
+      ssh_disconnect(session)
+      ssh_free(session)
+      r
 
-        ssh_options_set(
-          session,
-          SSH_OPTIONS_KNOWNHOSTS,
-          toCString(knownHostsPath)
-        )
-        // ssh_options_set(session, SSH_OPTIONS_GLOBAL_KNOWNHOSTS, c"/dev/null")
-
-        if ssh_connect(session) != SSH_OK
-        then
-          throw new Exception(
-            s"Failed to connect to ssh server: ${ssh_get_error(session.asInstanceOf[Ptr[Byte]])}"
-          )
-
-        session
-        /*
-        val jsch = new JSch()
-        jsch.addIdentity(cfg.keyIdentity)
-        val session = jsch.getSession(
-          cfg.username, s"$host.${cfg.domain}", cfg.port)
-        session.connect()
-        session*/
-      }
-    } { s =>
-      IO.blocking {
-        ssh_disconnect(s)
-        ssh_free(s)
-      }
-    }
-
-  private def mkChannel(
-      session: ssh_session,
-      cmd: String
-  ): Zone ?=> IO[String] =
-    IO.blocking {
+  private def exec(cmd: String)(session: ssh_session): Zone ?=> Try[String] =
+    Try:
 
       // authenticate
       // https://api.libssh.org/stable/libssh_tutor_authentication.html
@@ -132,4 +118,3 @@ object Ssh:
       ssh_channel_free(channel)
 
       result.toString()
-    }

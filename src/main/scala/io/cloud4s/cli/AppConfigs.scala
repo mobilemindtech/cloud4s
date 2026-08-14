@@ -1,12 +1,15 @@
 package io.cloud4s.cli
 
-import cats.effect.{IO, Resource}
-
 import java.io.File
 import scala.annotation.tailrec
 import scala.io.Source
+import scala.util.Try
+import java.io.FileNotFoundException
+import scala.util.Using
 
 object AppConfigs:
+
+  case class ValidationError(msg: String) extends Exception(msg)
 
   case class Config(
       hosts: Seq[String] = Nil,
@@ -50,14 +53,6 @@ object AppConfigs:
 
   private def home = System.getenv("HOME")
 
-  private def fileConfigs(): Resource[IO, Source] =
-    val file = new File(home, ".cloud4s")
-    Resource.make {
-      IO.blocking(Source.fromFile(file))
-    } { s =>
-      IO.blocking(s.close())
-    }
-
   @tailrec
   private def readLines(lines: Seq[String], config: Config = Config()): Config =
     lines match
@@ -88,16 +83,22 @@ object AppConfigs:
               println(s"wrong config: ${line}")
               readLines(rest, config)
 
-  def getConfigs(): IO[Config] =
-    fileConfigs()
-      .use: buffer =>
-        IO(readLines(buffer.getLines().toSeq))
-      .flatMap: cfg =>
+  def getConfigs(): Try[Config] =
+    Try:
+      val file = new File(home, ".cloud4s")
+
+      if !file.exists()
+      then
+        throw new FileNotFoundException(
+          s"file ${file.getAbsolutePath()} not exists"
+        )
+      file
+    .flatMap: file =>
+      Using(Source.fromFile(file)): buff =>
+        val cfg = readLines(buff.getLines().toSeq)
         cfg.validate() match
-          case c if c.valid => IO.pure(cfg)
+          case c if c.valid => cfg
           case c            =>
-            IO.raiseError(
-              new Exception(
-                s"Validation error: \n${c.validations.mkString("\n")}"
-              )
+            throw new ValidationError(
+              s"Validation error: \n${c.validations.mkString("\n")}"
             )
