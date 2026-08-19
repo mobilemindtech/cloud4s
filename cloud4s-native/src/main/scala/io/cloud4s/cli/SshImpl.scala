@@ -1,33 +1,32 @@
 package io.cloud4s.cli
 
-import AppConfigs.Config
-import ssh.aliases.ssh_session
-import ssh.constants.*
-import ssh.all.*
-import ssh.enumerations.ssh_auth_e.SSH_AUTH_SUCCESS
-import ssh.enumerations.ssh_options_e.*
-
+import io.cloud4s.cli.bindings.ssh.aliases.ssh_session
+import io.cloud4s.cli.bindings.ssh.constants.*
+import io.cloud4s.cli.bindings.ssh.all.*
+import io.cloud4s.cli.bindings.ssh.enumerations.ssh_auth_e.SSH_AUTH_SUCCESS
+import io.cloud4s.cli.bindings.ssh.enumerations.ssh_options_e.*
 import scala.scalanative.unsafe
 import scala.scalanative.unsafe.*
 import scala.scalanative.unsafe.Ptr
 import scala.scalanative.unsigned.*
 import scala.util.Try
+import io.cloud4s.cli.SshConfig
 
-object Ssh:
+object SshImpl extends Ssh:
 
   val SSH_OK: Int = 0
 
   def connectAndExec(
       cmd: String,
-      host: String
-  ): Config ?=> Zone ?=> Try[String] =
-    connect(host)(exec(cmd))
+      cfg: SshConfig
+  ): Try[String] =
+    Zone:
+      connect(cfg)(exec(cmd))
 
-  private def connect(host: String)(
+  private def connect(cfg: SshConfig)(
       f: ssh_session => Try[String]
-  ): Config ?=> Zone ?=> Try[String] =
+  ): Zone ?=> Try[String] =
     Try:
-      val cfg = summon[Config]
       val session = ssh_new()
 
       if session.asInstanceOf[Ptr[?]] == null
@@ -39,7 +38,7 @@ object Ssh:
       val port: Ptr[CInt] = alloc[CInt](1)
       !port = cfg.port
 
-      ssh_options_set(session, SSH_OPTIONS_HOST, toCString(host))
+      ssh_options_set(session, SSH_OPTIONS_HOST, toCString(cfg.host))
       ssh_options_set(
         session,
         SSH_OPTIONS_LOG_VERBOSITY,

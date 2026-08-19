@@ -5,11 +5,13 @@ import sttp.model.Uri
 
 import java.util.Base64
 import scala.util.Try
-import sttp.client4.curl.CurlBackend
 
 extension [A, B](value: Either[A, B])
   inline def toTryWith(inline f: A => Exception): Try[B] =
     value.left.map(f).toTry
+
+trait BackendProvider:
+  def backend(): SyncBackend
 
 case class Response(statusCode: Int, body: String)
 
@@ -37,7 +39,7 @@ case class Http(
     auth: Option[Auth] = None,
     headers: Map[String, String] = Map(),
     timeout: Long = 5000
-):
+)(using BackendProvider):
 
   private def addHeaders(
       req: Request[Either[String, String]]
@@ -59,7 +61,7 @@ case class Http(
   def post(payload: String): Try[Response] =
     parseUri()
       .map: uri =>
-        val backend = CurlBackend()
+        val backend = summon[BackendProvider].backend()
         val request = basicRequest
           .post(uri)
           .body(payload)
@@ -69,7 +71,7 @@ case class Http(
   def get: Try[Response] =
     parseUri()
       .map: uri =>
-        val backend = CurlBackend()
+        val backend = summon[BackendProvider].backend()
         val request = basicRequest.get(uri)
         val resp = addHeaders(request).send(backend)
         Response(resp)

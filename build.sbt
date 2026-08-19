@@ -12,12 +12,11 @@ import com.indoorvivants.detective.Platform
 resolvers += Resolver.mavenLocal
 
 
-scalaVersion := "3.8.4"
-scalafmtOnCompile := true
-organization := "io.cloud4s.cli"
-name := "cloud4s"
-version := "0.0.4"
-scalacOptions ++= Seq(
+ThisBuild / scalaVersion := "3.8.4"
+ThisBuild / scalafmtOnCompile := true
+ThisBuild / organization := "io.cloud4s.cli"
+ThisBuild / version := "0.0.5"
+ThisBuild / scalacOptions ++= Seq(
   "-new-syntax",
   "-Wvalue-discard",
   "-Wunused:all",
@@ -27,25 +26,48 @@ scalacOptions ++= Seq(
   "-rewrite",
   "-source:future"
 )
-Compile / run / fork := true
-usePipelining := true
+ThisBuild / Compile / run / fork := true
+ThisBuild / usePipelining := true
 ThisBuild / envVars := Map(
   "ENVIRONMENT" -> "development"
 )
 
-lazy val root = project
-  .in(file("."))
+lazy val core = crossProject(JVMPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
+  .in(file("core"))
+  .settings(
+    name := "core",
+    libraryDependencies ++= Seq(
+      "com.github.scopt" %% "scopt" % Deps.scoptVersion,
+      "com.lihaoyi" %% "upickle" % Deps.upickleVersion,
+      "com.softwaremill.sttp.client4" %% "core" % Deps.sttpVersion,
+      "org.scalameta" %% "munit" % Deps.munitVersion % Test
+    )
+  )
+
+lazy val `cloud4s-jvm` = project
+  .in(file("cloud4s-jvm"))
+  .dependsOn(core.jvm)
+  .settings(
+    name := "cloud4s-jvm",
+    libraryDependencies ++= Seq(
+      "org.scalameta" %% "munit" % "1.3.5" % Test
+    )
+  )
+
+lazy val `cloud4s-native` = project
+  .in(file("cloud4s-native"))
   .enablePlugins(ScalaNativePlugin, BindgenPlugin)
+  .dependsOn(core.native)
   .settings(
     name := "cloud4s",
 
     libraryDependencies ++= Seq(
-      "io.github.cquiroz" %%% "scala-java-time" % "2.6.0",
-      "io.github.cquiroz" %%% "scala-java-time-tzdb" % "2.6.0",
-      "com.github.scopt" %%% "scopt" % "4.1.0",
-      "com.lihaoyi" %%% "upickle" % "4.4.3",
-      "com.softwaremill.sttp.client4" %%% "core" % "4.0.26",
-      "org.scalameta" %%% "munit" % "1.3.5" % Test
+      "io.github.cquiroz" %%% "scala-java-time" % Deps.javaTimeVersion,
+      "io.github.cquiroz" %%% "scala-java-time-tzdb" % Deps.javaTimeVersion,
+      "com.github.scopt" %%% "scopt" % Deps.scoptVersion,
+      "com.lihaoyi" %%% "upickle" % Deps.upickleVersion,
+      "com.softwaremill.sttp.client4" %%% "core" % Deps.sttpVersion,
     ),
 
    
@@ -83,24 +105,31 @@ lazy val root = project
         .withOptimize(false)
     },
 
-    testOptions += Tests.Argument(TestFrameworks.JUnit, "-a", "-s", "-v")
+    testOptions += Tests.Argument(TestFrameworks.JUnit, "-a", "-s", "-v"),    
   )
 
 commands += Command.command("release") { state =>
   println("Iniciando build de produção (Release)...")
 
   // 1. Modifica a configuração para produção temporariamente
-  val stateWithConfig = Project.extract(state).appendWithoutSession(Seq(
-    Compile / nativeConfig ~= { _
-      .withMode(scala.scalanative.build.Mode.releaseFast)
-      .withLTO(scala.scalanative.build.LTO.thin)
-      .withGC(scala.scalanative.build.GC.commix)
-      .withOptimize(true)
-    }
-  ), state)
+  val stateWithConfig = Project
+    .extract(state)
+    .appendWithoutSession(
+      Seq(
+        `cloud4s-native` / Compile / nativeConfig ~= {
+          _.withMode(scala.scalanative.build.Mode.releaseFast)
+            .withLTO(scala.scalanative.build.LTO.thin)
+            .withGC(scala.scalanative.build.GC.commix)
+            .withOptimize(true)
+        }
+      ),
+      state
+    )
 
   // 2. Executa o build e pega o caminho do binário gerado
-  val (nextState, artifactFile) = Project.extract(stateWithConfig).runTask(Compile / nativeLink, stateWithConfig)
+  val (nextState, artifactFile) = Project
+    .extract(stateWithConfig)
+    .runTask(`cloud4s-native` / Compile / nativeLink, stateWithConfig)
 
   // 3. Define a pasta de destino (dist/) e o nome do arquivo final
   val destFile = baseDirectory.value / "dist" / artifactFile.getName
@@ -110,4 +139,5 @@ commands += Command.command("release") { state =>
 
   println("Build de produção concluído com sucesso!")
   nextState
-}
+}  
+

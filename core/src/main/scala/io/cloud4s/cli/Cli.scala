@@ -2,15 +2,10 @@ package io.cloud4s.cli
 
 import CliArgs.*
 import AppConfigs.Config
-
 import java.nio.file.{Files, Path, StandardOpenOption}
 import scala.language.postfixOps
 import scala.sys.process.*
-
 import java.nio.charset.StandardCharsets
-import java.time.format.DateTimeFormatter
-import java.time.LocalDateTime
-import scala.scalanative.unsafe.Zone
 import scala.util.{Try, Failure, Success}
 import data.{*, given}
 import scala.concurrent.Future
@@ -18,7 +13,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Await
 import scala.concurrent.duration.*
 
-type IOResult = Zone ?=> Config ?=> Try[Unit]
+type IOResult = BackendProvider ?=> Ssh ?=> Config ?=> Try[Unit]
 type Analyzer = String => IOResult
 
 extension [T](x: T) def unit: Unit = ()
@@ -27,79 +22,10 @@ object Config:
   val appName = "cloud4s"
   val localApps = Path.of(System.getenv("HOME"), ".cloud4s-apps.json")
 
-object Logger:
-  val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-
-  def info(s: String) =
-    Console.print(Console.GREEN)
-    Console.print(
-      s"[${LocalDateTime.now().format(formatter)}][INFO]::>\n"
-    )
-    Console.print(s"\n$s\n")
-    Console.print(Console.RESET)
-
-  def error(s: String) =
-    Console.print(Console.RED)
-    Console.print(
-      s"[${LocalDateTime.now().format(formatter)}][ERROR]::>\n"
-    )
-    Console.print(s"\n$s\n")
-    Console.print(Console.RESET)
-
-object Printer:
-  def app(appVersion: AppVersion) =
-    Console.print(Console.YELLOW)
-    print(s"::> current version is ${appVersion.currVersion}")
-    if appVersion.currVersion != appVersion.lastVersion
-    then print(s", last version is ${appVersion.lastVersion}")
-    print(s", last update is ${appVersion.lastUpdate}\n")
-    Console.print(Console.RESET)
-
-  def apps(apps: Seq[AppInfo]) =
-    val maxAlias = apps.map(_.alias.length).max
-    val maxVersion = 10
-    val maxCbProject = apps.map(_.codeBuildProjectName.length).max
-    val maxEcr = apps.map(_.ecrRepoName.length).max
-    val maxLastUpdate = apps.map(_.lastUpdate.length).max
-    val fmt =
-      s"%-${maxAlias}s | %-${maxVersion}s | %-${maxCbProject}s | %-${maxEcr}s | %-${maxLastUpdate}s"
-    Console.print(Console.YELLOW)
-    println(
-      fmt.formatted(
-        "Alias",
-        "Version",
-        "CodeBuild Project",
-        "ECR Repo Name",
-        "Last Update"
-      )
-    )
-    println("")
-    for app <- apps do
-      println(
-        fmt.formatted(
-          app.alias,
-          app.version,
-          app.codeBuildProjectName,
-          app.ecrRepoName,
-          app.lastUpdate
-        )
-      )
-    Console.print(Console.RESET)
-
-  def info(info: AppInfo) =
-    Console.print(Console.YELLOW)
-    println(s"::>                ID: ${info.id}")
-    println(s"::>             Alias: ${info.alias}")
-    println(s"::>           Version: ${info.version}")
-    println(s"::>        LastUpdate: ${info.lastUpdate}")
-    println(s"::> Codebuild Project: ${info.codeBuildProjectName}")
-    println(s"::>       ECR Project: ${info.ecrRepoName}")
-    Console.print(Console.RESET)
-
-@main def main(args: String*): Unit =
-  CliArgs.parse(args.toArray) match
-    case Some(cmd) =>
-      Zone:
+object Cli:
+  def run(args: String*)(using Ssh, BackendProvider): Unit =
+    CliArgs.parse(args.toArray) match
+      case Some(cmd) =>
         Cloud4s.runCmd(cmd) match
           case Success(_)  => ()
           case Failure(ex) =>
@@ -107,11 +33,11 @@ object Printer:
               case "development" =>
                 ex.printStackTrace()
               case _ => ()
-    case None =>
-      println("use --help")
+      case None =>
+        println("use --help")
 
 object Cloud4s:
-  def runCmd(cmd: Cmd): Zone ?=> Try[Unit] =
+  def runCmd(cmd: Cmd): Ssh ?=> BackendProvider ?=> Try[Unit] =
     for
       cfg <- AppConfigs.getConfigs()
       red <-
@@ -137,7 +63,7 @@ object Cloud4s:
           case ServiceUpdate(_, _)   => docker.runOnMainHost(cmd)
           case ServicePS(_, _)       => docker.runOnMainHost(cmd)
           case ServiceStop(_)        => docker.runOnMainHost(cmd)
-          case ServiceGetLogs(_)     =>
+          case _: ServiceGetLogs     =>
             docker.runOnMainHost(cmd, Some(docker.logAnalyzer))
           case ServiceList() => docker.runOnMainHost(cmd)
           case DockerPrune() => docker.runOnAllHosts(cmd)
@@ -207,7 +133,9 @@ object api:
       .map: apps =>
         Printer.apps(apps)
 
-  private def cbCallApi(path: String)(using cfg: Config): Try[ujson.Value] =
+  private def cbCallApi(path: String)(using
+      cfg: Config
+  ): BackendProvider ?=> Try[ujson.Value] =
     val url = s"${cfg.codebuildUrl}$path"
     val auth = AuthBasic(cfg.codebuildUsername, cfg.codebuildPassword)
     Http(url, Some(auth)).get
@@ -218,7 +146,7 @@ object api:
             Logger.error(resp.body)
             throw new Exception(s"Server status code ${resp.statusCode}")
 
-  def fetchApps(): Config ?=> Try[Seq[AppInfo]] =
+  def fetchApps(): Config ?=> BackendProvider ?=> Try[Seq[AppInfo]] =
     val cfg = summon[Config]
     val url = s"${cfg.codebuildUrl}/api/app/list"
     val auth = AuthBasic(cfg.codebuildUsername, cfg.codebuildPassword)
@@ -233,14 +161,16 @@ object api:
         )
         upickle.read[Seq[AppInfo]](content)
 
-  def loadApps(): Config ?=> Try[Seq[AppInfo]] =
+  def loadApps(): BackendProvider ?=> Config ?=> Try[Seq[AppInfo]] =
     if Config.localApps.toFile.exists()
     then
       Try:
         upickle.read[Seq[AppInfo]](Files.readString(Config.localApps))
     else fetchApps()
 
-  def findAppByAlias(alias: String): Config ?=> Try[AppInfo] =
+  def findAppByAlias(
+      alias: String
+  ): BackendProvider ?=> Config ?=> Try[AppInfo] =
     loadApps()
       .map: apps =>
         apps.find(_.alias == alias) match
@@ -250,7 +180,9 @@ object api:
 
 object aws:
 
-  private def getBuildId(cb: CodeBuildShowBuildId): Config ?=> Try[String] =
+  private def getBuildId(
+      cb: CodeBuildShowBuildId
+  ): BackendProvider ?=> Config ?=> Try[String] =
     api
       .findAppByAlias(cb.alias)
       .map: app =>
@@ -307,11 +239,11 @@ object aws:
     api
       .findAppByAlias(cb.alias)
       .flatMap: app =>
-        getBuildId(CodeBuildShowBuildId(app.codeBuildProjectName))
+        getBuildId(CodeBuildShowBuildId(app.alias))
           .flatMap: bid =>
             if bid.isEmpty
             then
-              Logger.info(
+              Logger.error(
                 s"build not found to project ${app.codeBuildProjectName}"
               )
               Try(())
@@ -319,25 +251,52 @@ object aws:
               getLogInfo(bid)
                 .map:
                   case Left(msg) =>
-                    Logger.info(msg)
+                    Logger.error(msg)
                   case Right((groupName, streamName)) =>
-                    val cmd = cb.cmd
-                      .replace("__group_name__", groupName)
-                      .replace("__stream_name__", streamName)
-                    val filterCmd = "jq -r '.events[].message'"
-                    val result = ((cmd #| filterCmd) !!)
-                    val s = result
-                      .split("\n")
-                      .toList
-                      .filter(_.trim().nonEmpty)
-                      .mkString("\n")
-                    Logger.info(s)
+                    if cb.follow
+                    then
+                      val cmd = cb.cmdStream
+                        .replace("__stream_name__", streamName)
+                        .replace("__project__name__", app.codeBuildProjectName)
+
+                      val logger = ProcessLogger(
+                        stdout =>
+                          println(
+                            s"[AWS Log]: $stdout"
+                          ), // O que fazer com o STDOUT
+                        stderr =>
+                          println(
+                            s"[AWS Log Error/Follow]: $stderr"
+                          ) // O que fazer com o STDERR (Onde os logs da AWS estão!)
+                      )
+
+                      // Em vez de rodar direto comando!(logger), force o ambiente sem buffer:
+                      val processoConfigurado =
+                        Process(cmd, None, "PYTHONUNBUFFERED" -> "1")
+
+                      // Execute agora
+                      processoConfigurado ! (logger)
+                      ()
+                      // val lineStream: LazyList[String] = (cmd.split(" ").toSeq.#2>&1).lazyLines_!
+                      // lineStream.foreach(line => println(s"Streamed: $line"))
+                    else
+                      val cmd = cb.cmd
+                        .replace("__group_name__", groupName)
+                        .replace("__stream_name__", streamName)
+                      val filterCmd = "jq -r '.events[].message'"
+                      val result = ((cmd #| filterCmd) !!)
+                      val s = result
+                        .split("\n")
+                        .toList
+                        .filter(_.trim().nonEmpty)
+                        .mkString("\n")
+                      Logger.info(s)
 
   def info(cb: CodeBuildInfo): IOResult =
     api
       .findAppByAlias(cb.alias)
       .flatMap: app =>
-        getBuildId(CodeBuildShowBuildId(app.codeBuildProjectName))
+        getBuildId(CodeBuildShowBuildId(app.alias))
           .map: bid =>
             if bid.isEmpty
             then
@@ -352,7 +311,7 @@ object aws:
     api
       .findAppByAlias(cb.alias)
       .flatMap: app =>
-        getBuildId(CodeBuildShowBuildId(app.codeBuildProjectName))
+        getBuildId(CodeBuildShowBuildId(app.alias))
           .map: bid =>
             if bid.isEmpty
             then
@@ -387,9 +346,9 @@ object docker:
       hosts
         .map: host =>
           Future[Try[Unit]]:
-            Zone:
-              given cfg: Config = summon[Config]
-              runEach(cmd, host, analyzer)
+            given cfg: Config = summon[Config]
+            given ssh: Ssh = summon[Ssh]
+            runEach(cmd, host, analyzer)
 
     for future <- futures do Await.result(future, 5.seconds)
 
@@ -400,8 +359,10 @@ object docker:
       host: String,
       analyzer: Option[Analyzer] = None
   ): IOResult =
-    Ssh
-      .connectAndExec(cmd, host)
+    given cfg: Config = summon[Config]
+    val ssh: Ssh = summon[Ssh]
+    ssh
+      .connectAndExec(cmd, SshConfig(host, cfg.port))
       .flatMap: content =>
         analyzer match
           case Some(f) => f(content)

@@ -27,7 +27,11 @@ object CliArgs:
   case class ServiceList() extends Cmd:
     def cmd = runOnCluster("ls")
 
-  case class ServiceGetLogs(service: String) extends Cmd:
+  case class ServiceGetLogs(
+      service: String,
+      follow: Boolean = false,
+      tail: Int = -1
+  ) extends Cmd:
     def cmd = runOnCluster(s"getlogs $service")
 
   case class StackRemove(stack: String) extends Cmd:
@@ -71,9 +75,18 @@ object CliArgs:
     override def cmd = s"aws codebuild batch-get-builds --ids __build_id__"
   case class CodeBuildStatus(alias: String) extends CodeBuild:
     override def cmd = s"aws codebuild batch-get-builds --ids __build_id__"
-  case class CodeBuildLogs(alias: String) extends CodeBuild:
+  case class CodeBuildLogs(alias: String, follow: Boolean = false)
+      extends CodeBuild:
     override def cmd =
       s"aws logs get-log-events --log-group-name __group_name__ --log-stream-name __stream_name__"
+
+    def cmdStream =
+      """
+      | aws logs tail "/aws/codebuild/__project__name__"
+      | --log-stream-names __stream_name__
+      | --follow
+      """.stripMargin
+
   case class CodeBuildProjects() extends CodeBuild:
     override def cmd = s"aws codebuild list-projects"
 
@@ -160,7 +173,25 @@ object CliArgs:
             .children(
               arg[String]("<service name>")
                 .text("service name")
-                .action((x, c) => c.copy(cmd = Some(ServiceGetLogs(x))))
+                .action((x, c) => c.copy(cmd = Some(ServiceGetLogs(x)))),
+              opt[Unit]('f', "follow")
+                .text("Follow log output")
+                .action((_, c) =>
+                  c.copy(cmd = c.cmd.collect { case it: ServiceGetLogs =>
+                    it.copy(follow = true)
+                  })
+                ),
+              opt[Unit]('t', "tail")
+                .text("number of lines to show from the end of the logs")
+                .children(
+                  arg[Int]("<number>")
+                    .text("number of lines")
+                    .action((n, c) =>
+                      c.copy(cmd = c.cmd.collect { case it: ServiceGetLogs =>
+                        it.copy(tail = n)
+                      })
+                    )
+                )
             )
         ),
 
@@ -213,8 +244,15 @@ object CliArgs:
           cmd("logs")
             .text("Show logs for last build from AWS CodeBuild")
             .children(
-              arg[String]("<AWS CodeBuild project name>")
-                .action((x, c) => c.copy(cmd = Some(CodeBuildLogs(x))))
+              arg[String]("<App alias>")
+                .action((x, c) => c.copy(cmd = Some(CodeBuildLogs(x)))),
+              opt[Unit]('f', "follow")
+                .text("Follow log output")
+                .action((_, c) =>
+                  c.copy(cmd = c.cmd.collect { case it: CodeBuildLogs =>
+                    it.copy(follow = true)
+                  })
+                )
             ),
           cmd("projects")
             .text("List all projects on AWS CodeBuild")
